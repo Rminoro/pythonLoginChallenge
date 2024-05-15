@@ -140,8 +140,10 @@
 #     app.run(debug=True, host='0.0.0.0')
 import firebase_admin
 import random
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, auth
 from flask import Flask, request, jsonify
+from flask_mail import Mail, Message
+
 
 app = Flask(__name__)
 
@@ -217,7 +219,68 @@ def get_usuarios():
     except Exception as e:
         # Em caso de erro, retorne uma mensagem de erro com status 500
         return jsonify({"error": str(e)}), 500
+    
+##Recuperação de senha
+# Configurações do email
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 465
+app.config['MAIL_USERNAME'] = 'ntjntjntjntj1@gmail.com'
+app.config['MAIL_PASSWORD'] = 'vpti ctyk nbha lazw'
+app.config['MAIL_USE_TLS'] = False
+app.config['MAIL_USE_SSL'] = True
 
+mail = Mail(app)
+
+# Rota para recuperar a senha
+@app.route('/recuperar_senha', methods=['POST'])
+def recuperar_senha():
+    data = request.get_json()
+    cpf = data.get('cpf')
+    email = data.get('email')
+
+    # Verificar se o CPF e o email fornecidos correspondem a um usuário
+    users_ref = db.collection('usuarios')
+    query = users_ref.where('cpf', '==', cpf).where('email', '==', email)
+    snapshot = query.get()
+
+    if len(snapshot) == 0:
+        return jsonify({"success": False, "message": "CPF ou email não encontrados."}), 404
+
+    # Simulação de um token de recuperação gerado
+    token_recuperacao = 'abc123'
+
+    # Enviar email com o token de recuperação
+    msg = Message('Recuperação de Senha', sender='seu_email@gmail.com', recipients=[email])
+    msg.body = f'Olá,\n\nVocê solicitou a recuperação de senha. Use o seguinte token para redefinir sua senha: {token_recuperacao}\n\nAtenciosamente,\nSua Aplicação'
+
+    try:
+        mail.send(msg)
+        return jsonify({"success": True, "message": "Token de recuperação enviado para o seu email."}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+    
+##RETORNA TOKEN E REDEFINE SENHA  
+@app.route('/redefinir_senha', methods=['POST'])
+def redefinir_senha():
+    # Recebe os dados do formulário (token e nova senha)
+    token = request.json.get('token')
+    nova_senha = request.json.get('nova_senha')
+
+    try:
+        # Verifica se o token é válido
+        decoded_token = auth.verify_password_reset_link(token)
+        
+        # Obtém o ID do usuário a partir do token
+        user_id = decoded_token['user_id']
+        
+        # Atualiza a senha do usuário no Firebase Authentication
+        auth.update_user(user_id, password=nova_senha)
+        
+        # Responde com uma mensagem de sucesso
+        return jsonify({"success": True, "message": "Senha redefinida com sucesso."}), 200
+    except Exception as e:
+        # Em caso de erro, responde com uma mensagem de erro
+        return jsonify({"success": False, "error": str(e)}), 400
 # Execute o aplicativo Flask
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')
