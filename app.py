@@ -143,6 +143,7 @@ import random
 from firebase_admin import credentials, firestore, auth
 from flask import Flask, request, jsonify
 from flask_mail import Mail, Message
+from flask_cors import CORS
 
 
 app = Flask(__name__)
@@ -191,7 +192,8 @@ def register():
         'id': id,
         'cpf': cpf,
         'senha': senha,
-        'email': email  # Adiciona o e-mail ao registro do usuário
+        'email': email,  # Adiciona o e-mail ao registro do usuário
+        'token_recuperacao': ''  
     })
 
     return jsonify({"success": True, "message": "Usuário registrado com sucesso.", "id": id}), 200
@@ -238,7 +240,6 @@ def recuperar_senha():
     cpf = data.get('cpf')
     email = data.get('email')
 
-    # Verificar se o CPF e o email fornecidos correspondem a um usuário
     users_ref = db.collection('usuarios')
     query = users_ref.where('cpf', '==', cpf).where('email', '==', email)
     snapshot = query.get()
@@ -246,57 +247,51 @@ def recuperar_senha():
     if len(snapshot) == 0:
         return jsonify({"success": False, "message": "CPF ou email não encontrados."}), 404
 
-    # Simulação de um token de recuperação gerado
     token_recuperacao = 'abc123'
 
-    # Enviar email com o token de recuperação
+    for doc in snapshot:
+        doc.reference.update({"token_recuperacao": token_recuperacao})
+    
+    print(f"Token de recuperação gerado para CPF {cpf} e email {email}: {token_recuperacao}")
+
     msg = Message('Recuperação de Senha', sender='seu_email@gmail.com', recipients=[email])
     msg.body = f'Olá,\n\nVocê solicitou a recuperação de senha. Use o seguinte token para redefinir sua senha: {token_recuperacao}\n\nAtenciosamente,\nSua Aplicação'
 
     try:
         mail.send(msg)
+        print(f"E-mail de recuperação enviado para {email}.")
         return jsonify({"success": True, "message": "Token de recuperação enviado para o seu email."}), 200
     except Exception as e:
+        print(f"Erro ao enviar e-mail de recuperação para {email}: {str(e)}")
         return jsonify({"success": False, "error": str(e)}), 500
     
-# RETORNA TOKEN E REDEFINE SENHA  
 
 @app.route('/redefinir_senha', methods=['POST'])
 def redefinir_senha():
-    # Recebe os dados do formulário (email e nova senha)
+    # Receba os dados do formulário (cpf, email, token e nova senha)
+    cpf = request.json.get('cpf')
     email = request.json.get('email')
+    token = request.json.get('token')
     nova_senha = request.json.get('nova_senha')
 
-    try:
-        # Busca o usuário pelo email
-        user_id = get_user_id_by_email(email)
-        
-        if user_id:
-            # Define a nova senha para o usuário
-            auth.update_user(user_id, password=nova_senha)
-            
-            # Responde com uma mensagem de sucesso
-            return jsonify({"success": True, "message": "Senha redefinida com sucesso."}), 200
-        else:
-            # Se não encontrar um usuário com o email fornecido, responde com um erro
-            return jsonify({"success": False, "error": "Usuário não encontrado."}), 404
-    except Exception as e:
-        # Em caso de erro, responde com uma mensagem de erro
-        return jsonify({"success": False, "error": str(e)}), 400
-
-def get_user_id_by_email(email):
-    # Consulta para buscar o ID do usuário pelo email na subcoleção 'usuarios'
-    query = db.collection('usuarios').document('usuarios').collection('usuarios').where('email', '==', email)
+    # Verifique se o CPF e o email fornecidos correspondem a um usuário
+    users_ref = db.collection('usuarios')
+    query = users_ref.where('cpf', '==', cpf).where('email', '==', email)
     snapshot = query.get()
 
-    user_ids = []
-    for doc in snapshot:
-        user_id = doc.id
-        user_ids.append(user_id)
+    if len(snapshot) == 0:
+        return jsonify({"success": False, "message": "CPF ou email não encontrados."}), 404
 
-    if user_ids:
-        return user_ids[0]  # Retorna o primeiro ID encontrado
-    else:
-        return None
+    # Verificar se o token recebido é válido para o usuário
+    for doc in snapshot:
+        user_data = doc.to_dict()
+        if user_data.get('token_recuperacao') == token:
+            # Atualizar a senha do usuário no Firestore
+            doc.reference.update({"senha": nova_senha})
+            print('Senha redefinida com sucesso para o usuário com CPF:', cpf)
+            return jsonify({"success": True, "message": "Senha redefinida com sucesso."}), 200
+        else:
+            return jsonify({"success": False, "error": "Token de redefinição de senha inválido."}), 400
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')
