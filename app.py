@@ -259,31 +259,44 @@ def recuperar_senha():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
     
-##RETORNA TOKEN E REDEFINE SENHA  
+# RETORNA TOKEN E REDEFINE SENHA  
+
 @app.route('/redefinir_senha', methods=['POST'])
 def redefinir_senha():
-    # Recebe os dados do formulário (token e nova senha)
-    token = request.json.get('token')
+    # Recebe os dados do formulário (email e nova senha)
+    email = request.json.get('email')
     nova_senha = request.json.get('nova_senha')
 
     try:
-        # Verifica se o token é válido
-        decoded_token = auth.verify_password_reset_link(token)
+        # Busca o usuário pelo email
+        user_id = get_user_id_by_email(email)
         
-        # Obtém o ID do usuário a partir do token
-        user_id = decoded_token['user_id']
-        
-        # Atualiza a senha do usuário no Firebase Authentication
-        auth.update_user(user_id, password=nova_senha)
-        
-        # Responde com uma mensagem de sucesso
-        return jsonify({"success": True, "message": "Senha redefinida com sucesso."}), 200
+        if user_id:
+            # Define a nova senha para o usuário
+            auth.update_user(user_id, password=nova_senha)
+            
+            # Responde com uma mensagem de sucesso
+            return jsonify({"success": True, "message": "Senha redefinida com sucesso."}), 200
+        else:
+            # Se não encontrar um usuário com o email fornecido, responde com um erro
+            return jsonify({"success": False, "error": "Usuário não encontrado."}), 404
     except Exception as e:
         # Em caso de erro, responde com uma mensagem de erro
         return jsonify({"success": False, "error": str(e)}), 400
-# Execute o aplicativo Flask
+
+def get_user_id_by_email(email):
+    # Consulta para buscar o ID do usuário pelo email na subcoleção 'usuarios'
+    query = db.collection('usuarios').document('usuarios').collection('usuarios').where('email', '==', email)
+    snapshot = query.get()
+
+    user_ids = []
+    for doc in snapshot:
+        user_id = doc.id
+        user_ids.append(user_id)
+
+    if user_ids:
+        return user_ids[0]  # Retorna o primeiro ID encontrado
+    else:
+        return None
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')
-
-
-
